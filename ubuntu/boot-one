@@ -1,0 +1,193 @@
+#########################
+#Copyright notice
+#
+#(c) by Rico Dittrich <ricod1996@googlemail.com>
+#All rights reserved
+#
+#This script is part of the Andrinux project. The Andrinux project is
+#free software; you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation; either version 2 of the License, or
+#(at your option) any later version.
+#
+#The GNU General Public License can be found at
+#http://www.gnu.org/copyleft/gpl.html.
+#
+#This script is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+#This copyright notice MUST APPEAR in all copies of the script!
+######################### 
+
+#Setting the main values which are OS-specific. Try to not change them.
+os=ubu-one
+if [ "$os" == "deb-sque" ]
+then
+	script="boot-sque"
+	dir="debian"
+	dist="Debian Squeeze"
+elif [ "$os" == "deb-whee" ]
+then
+	script="boot-whee"
+	dir="debian"
+	dist="Debian Wheezy"
+elif [ "$os" == "ubu-one" ]
+then
+	script="boot-one"
+	dir="ubuntu"
+	dist="Ubuntu Oneiric"
+elif [ "$os" == "ubu-nat" ]
+then
+	script="boot-nat"
+	dir="ubuntu"
+	dist="Ubuntu Natty"
+elif [ "$os" == "fed14" ]
+then
+	script="boot-f14"
+	dir="fedora"
+	dist="Fedora 14"
+elif [ "$os" == "fed15" ]
+then
+	script="boot-f15"
+	dir="fedora"
+	dist="Fedora 15"
+elif [ "$os" == "slack" ]
+then
+	script="boot-slack"
+	dir="slackware"
+	dist="Slackware"
+fi
+
+#Setting the other values. You shouldn't change them anymore...
+mp=/data/local/mnt/${os}
+img=${EXTERNAL_STORAGE}/andrinux/${dir}/${os}.img
+null=/dev/null
+loop=255
+
+
+looppath=/dev/block/loop$loop 
+ 
+scripthelp () {
+	echo "Usage: $script [OPT]"
+	echo "Options:"
+	echo -e "\t-x\tStart GUI, then go to terminal."
+	echo -e "\t-h\tView this help."
+	exit 0
+}
+
+while getopts "xh" OPT
+do
+	case $OPT in
+		x) x="1";;
+		h) scripthelp;;
+		*) scripthelp;;
+	esac
+done
+ 
+echo "I: Important info: More than 255 apps on SD and mounting $dist is not possible."
+echo "I: If you got 256 apps on your SD-Card (highest possible number for now) please move one."
+
+echo "I: Preconfiguring..."
+export bin=/system/bin
+export PATH=$bin:/usr/bin:/usr/sbin:/bin:$PATH
+export TERM=linux
+export HOME=/root
+export USER=root
+
+
+if [ -f $looppath ]
+then
+	rm $looppath
+	if [ -f $looppath ]
+	then
+		echo "E: Couldn't remove loop device. Make sure no image or app is attached to it."
+		echo "I: Exiting now..."
+		exit
+	fi
+fi
+ 
+mknod -m 777 $looppath b 7 $loop > $null 2>&1 
+ 
+if [ ! -d /data/local/mnt ]
+then
+	mkdir /data/local/mnt
+fi
+
+if [ ! -d $mp ]
+then
+	mkdir $mp
+fi
+
+
+echo "I: Setting up img-file and mounting..."
+
+losetup $looppath $img 2> $null >&1
+mount -t ext2 $looppath $mp 2> $null >&1
+
+if [ $(mount|grep -c $looppath) = "0" ]
+then
+	echo "E: Mounting failed! Trying it one more time..."
+	mount $looppath $mp 2>$null >&1
+	if [ $(mount|grep -c $looppath) = "0" ]
+	then
+		echo "E: Couldn't mount the image! Giving up..."
+	echo "I: Please contact me with basic informations like device, ROM, ... Thanks"
+		exit
+	fi
+fi 
+
+if [ ! -d $mp/sdcard ]
+then
+	mkdir $mp/sdcard 2> $null
+fi
+
+mount -t devpts devpts $mp/dev/pts 2> $null
+mount -t proc proc $mp/proc 2> $null
+mount -t sysfs sysfs $mp/sys 2> $null
+mount -o bind /mnt/sdcard $mp/sdcard 2> $null
+echo "I: Successfully mounted! :)"
+echo "I: Setting up network..."
+sysctl -w net.ipv4.ip_forward=1 > $null
+echo "nameserver 8.8.8.8" > $mp/etc/resolv.conf
+echo "nameserver 8.8.4.4" >> $mp/etc/resolv.conf
+echo "I: New script from scratch. So only credits to me. :P"
+echo "I: Already ad-cleaned by the Andrinux-Project. ;)"
+
+if [ "$x" == "1" ]
+then
+	chroot $mp /bin/xstart.sh
+fi
+
+chroot $mp /bin/bash
+echo "I: Exiting and unmounting $dist..."
+if [ "$x" == "1" ]
+then
+	chroot $mp /bin/xexit.sh
+fi
+
+sync
+
+umount -lfr $mp/dev/pts 2> $null
+umount -lfr $mp/proc 2> $null
+umount -lfr $mp/sys 2> $null
+umount -lfr $mp/sdcard 2> $null
+umount -lfr $mp 2> $null
+
+if [ $(mount|grep -c $looppath) != "0" ]
+then
+	echo "E: Unmounting failed! Trying it one more time..."
+	sleep 5
+	umount -lfr $mp/dev/pts 2> $null
+	umount -lfr $mp/proc 2> $null
+	umount -lfr $mp/sys 2> $null
+	umount -lfr $mp/sdcard 2> $null
+	umount -lfr $mp 2> $null 
+	if [ $(mount|grep -c $looppath) != "0" ]
+	then
+		echo "E: Couldn't unmount the image! Giving up..."
+	fi
+fi 
+
+losetup -d $loop 2> $null >&1
